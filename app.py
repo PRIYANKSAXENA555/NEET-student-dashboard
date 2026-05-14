@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import plotly.graph_objects as go
 import numpy as np
 import re
 from collections import Counter
@@ -32,6 +33,7 @@ NEET_CONFIG = {
 # ============================================================
 EXCEL_FILE_PATH = "NEET 2027 ALL RESULT.xlsx"
 
+# Check if file exists
 if not os.path.exists(EXCEL_FILE_PATH):
     st.error(f"❌ Excel file not found at: {EXCEL_FILE_PATH}")
     st.info("Please make sure 'NEET 2027 ALL RESULT.xlsx' is in the same directory.")
@@ -65,6 +67,10 @@ def normalize_name(name):
         'KANISHKA DHULAM': 'KANISHKA SUNIL DHULAM',
         'DEVAYANI DAREKAR': 'DEVYANI DAREKAR',
         'RITHIKA DYAWARKONDA': 'RITHIKA RENURAJA DYAWARKONDA',
+        'BURA SHRIVARDHAN VYANKATESH': 'SHRIVARDHAN BURA',
+        'SRUSHTI TIPE': 'SHRUSHTI HARISHCHANDRA TIPE',
+        'SHAIKH SAMA': 'SAMA SHAIKH',
+        'MUGHDHA GAIKWAD': 'MUGDHA VIJAYSINH GAIKWAD',
     }
     name = replacements.get(name, name)
     if len(name) < 3:
@@ -72,7 +78,8 @@ def normalize_name(name):
     return name
 
 def get_weakest_subject_neet(phy_rank, chem_rank, bio_rank):
-    if pd.isna(phy_rank) or pd.isna(chem_rank) or pd.isna(bio_rank):
+    """Determine weakest subject based on rank (higher rank number = worse)"""
+    if phy_rank is None or chem_rank is None or bio_rank is None:
         return "Absent"
     try:
         p, c, b = float(phy_rank), float(chem_rank), float(bio_rank)
@@ -94,6 +101,18 @@ def detect_test_type(sheet_name):
     elif "GRAND" in sheet_upper:
         return "GRAND TEST"
     return "BTEST"
+
+def safe_convert_to_int(val):
+    """Safely convert value to int, handling #N/A and other non-numeric values"""
+    if val is None or pd.isna(val):
+        return None
+    try:
+        str_val = str(val).upper().strip()
+        if str_val == '#N/A':
+            return None
+        return int(float(val))
+    except:
+        return None
 
 # ============================================================
 # LOAD DATA
@@ -133,7 +152,7 @@ def load_excel_data():
                 df = pd.read_excel(xl, sheet_name=sheet, skiprows=data_start)
                 headers = df.iloc[0].astype(str).str.upper().tolist() if len(df) > 0 else []
                 
-                # Find columns - UPDATED to handle "CHE RANK" properly
+                # Find columns - IMPORTANT: Looking for "CHE RANK" (with space)
                 col_map = {
                     'overall_rank': None,
                     'name': None,
@@ -166,11 +185,11 @@ def load_excel_data():
                     elif 'PHY RANK' in h_clean and col_map['phy_rank'] is None:
                         col_map['phy_rank'] = i
                     
-                    # Chemistry marks column - FIXED: looks for CHEM (not CHE)
+                    # Chemistry marks column
                     elif h_clean == 'CHEM' and col_map['chem'] is None:
                         col_map['chem'] = i
                     
-                    # Chemistry Rank column - FIXED: looks for "CHE RANK" (with space)
+                    # Chemistry Rank column - KEY FIX: looking for "CHE RANK" (with space)
                     elif 'CHE RANK' in h_clean and col_map['chem_rank'] is None:
                         col_map['chem_rank'] = i
                     
@@ -227,48 +246,30 @@ def load_excel_data():
                     chem = pd.to_numeric(row.iloc[col_map['chem']] if col_map.get('chem') is not None else 0, errors='coerce')
                     bio = pd.to_numeric(row.iloc[col_map['bio']] if col_map.get('bio') is not None else 0, errors='coerce')
                     
-                    # Get ranks - IMPORTANT: Handle #N/A and other non-numeric values
+                    # Get ranks using safe converter
                     phy_rank_raw = row.iloc[col_map['phy_rank']] if col_map.get('phy_rank') is not None else None
                     chem_rank_raw = row.iloc[col_map['chem_rank']] if col_map.get('chem_rank') is not None else None
                     bio_rank_raw = row.iloc[col_map['bio_rank']] if col_map.get('bio_rank') is not None else None
                     
-                    # Convert ranks, treating #N/A as None
-                    phy_rank = None
-                    chem_rank = None
-                    bio_rank = None
-                    
-                    if pd.notna(phy_rank_raw):
-                        try:
-                            if str(phy_rank_raw).upper() != '#N/A':
-                                phy_rank = float(phy_rank_raw)
-                        except:
-                            pass
-                    
-                    if pd.notna(chem_rank_raw):
-                        try:
-                            if str(chem_rank_raw).upper() != '#N/A':
-                                chem_rank = float(chem_rank_raw)
-                        except:
-                            pass
-                    
-                    if pd.notna(bio_rank_raw):
-                        try:
-                            if str(bio_rank_raw).upper() != '#N/A':
-                                bio_rank = float(bio_rank_raw)
-                        except:
-                            pass
+                    phy_rank = safe_convert_to_int(phy_rank_raw)
+                    chem_rank = safe_convert_to_int(chem_rank_raw)
+                    bio_rank = safe_convert_to_int(bio_rank_raw)
                     
                     overall_rank = pd.to_numeric(row.iloc[col_map['overall_rank']] if col_map.get('overall_rank') is not None else None, errors='coerce')
+                    if pd.notna(overall_rank):
+                        overall_rank = int(overall_rank)
+                    else:
+                        overall_rank = None
                     
                     all_student_data[student_name]["tests"][sheet] = {
                         "phy": phy if pd.notna(phy) else 0,
                         "chem": chem if pd.notna(chem) else 0,
                         "bio": bio if pd.notna(bio) else 0,
-                        "phy_rank": int(phy_rank) if phy_rank is not None else None,
-                        "chem_rank": int(chem_rank) if chem_rank is not None else None,
-                        "bio_rank": int(bio_rank) if bio_rank is not None else None,
+                        "phy_rank": phy_rank,
+                        "chem_rank": chem_rank,
+                        "bio_rank": bio_rank,
                         "total": total,
-                        "overall_rank": int(overall_rank) if pd.notna(overall_rank) else None,
+                        "overall_rank": overall_rank,
                         "type": test_type
                     }
                     
@@ -325,12 +326,12 @@ if all_student_data and len(all_student_data) > 0:
             
             all_overall_ranks.append(overall_rank)
             
-            if marks.get("phy_rank") is not None and not pd.isna(marks.get("phy_rank")):
-                all_phy_ranks.append(int(marks.get("phy_rank")))
-            if marks.get("chem_rank") is not None and not pd.isna(marks.get("chem_rank")):
-                all_chem_ranks.append(int(marks.get("chem_rank")))
-            if marks.get("bio_rank") is not None and not pd.isna(marks.get("bio_rank")):
-                all_bio_ranks.append(int(marks.get("bio_rank")))
+            if marks.get("phy_rank") is not None:
+                all_phy_ranks.append(marks.get("phy_rank"))
+            if marks.get("chem_rank") is not None:
+                all_chem_ranks.append(marks.get("chem_rank"))
+            if marks.get("bio_rank") is not None:
+                all_bio_ranks.append(marks.get("bio_rank"))
             
             weakest = get_weakest_subject_neet(
                 marks.get("phy_rank"), 
@@ -374,6 +375,7 @@ if all_student_data and len(all_student_data) > 0:
             else:
                 brtest_results.append(result)
         
+        # Sort by test number
         btest_results.sort(key=lambda x: x["S.No."])
         grand_test_results.sort(key=lambda x: x["S.No."])
         brtest_results.sort(key=lambda x: x["S.No."])
@@ -449,6 +451,7 @@ if all_student_data and len(all_student_data) > 0:
                         st.metric("Weak in", f"{count} test(s)")
                 st.markdown("---")
             
+            # Regular tests (BTEST + GRAND TEST)
             regular_tests = btest_results + grand_test_results
             if regular_tests:
                 with st.expander("📘 BTEST & GRAND TESTS (Full NEET Format - 720 marks)", expanded=True):
@@ -466,6 +469,7 @@ if all_student_data and len(all_student_data) > 0:
             
             st.markdown("---")
             
+            # Charts for regular tests
             if regular_tests:
                 st.subheader("📊 Subject Marks Trends - BTEST & GRAND TESTS")
                 test_names = [t['Test Name'][:25] for t in regular_tests]
@@ -529,6 +533,7 @@ if all_student_data and len(all_student_data) > 0:
                                        yaxis=dict(autorange="reversed"), height=400)
                 st.plotly_chart(fig_rank, use_container_width=True)
             
+            # Overall percentage trend
             st.subheader("📈 Overall Percentage Trend")
             all_test_names = [t['Test Name'][:25] for t in all_tests]
             all_pcts = [float(t["%"].replace("%", "")) for t in all_tests]
@@ -563,6 +568,7 @@ if all_student_data and len(all_student_data) > 0:
             )
             st.plotly_chart(fig_trend, use_container_width=True)
             
+            # Weakness analysis
             st.subheader("📊 Detailed Weakness Analysis for NEET")
             
             subject_weakness = {'Physics': 0, 'Chemistry': 0, 'Biology': 0}
@@ -600,6 +606,7 @@ if all_student_data and len(all_student_data) > 0:
                 if len(balanced_tests_list) > 5:
                     st.write(f"... and {len(balanced_tests_list) - 5} more")
             
+            # Missing tests
             attempted = set([t['Test Name'] for t in all_tests])
             missing = [t for t in test_metadata.keys() if t not in attempted]
             if missing:
@@ -607,6 +614,7 @@ if all_student_data and len(all_student_data) > 0:
                 for m in missing[:10]:
                     st.write(f"• {m} ({test_metadata[m]['type']})")
             
+            # Performance metrics
             if len(all_pcts) >= 3:
                 col1, col2 = st.columns(2)
                 with col1:
