@@ -485,8 +485,9 @@ if all_student_data and len(all_student_data) > 0:
                                                 mode='lines+markers', name='Biology (max 360)', 
                                                 line=dict(color='#2ECC71', width=2), marker=dict(size=8)))
                 
+                # Target lines - Physics 70% (126), Chemistry 60% (108), Biology 70% (252)
                 fig_marks.add_hline(y=126, line_dash="dash", line_color="#3498DB", opacity=0.5, annotation_text="Physics 70% (126)")
-                fig_marks.add_hline(y=126, line_dash="dash", line_color="#9B59B6", opacity=0.5, annotation_text="Chemistry 70% (126)")
+                fig_marks.add_hline(y=108, line_dash="dash", line_color="#9B59B6", opacity=0.5, annotation_text="Chemistry 60% (108)")
                 fig_marks.add_hline(y=252, line_dash="dash", line_color="#2ECC71", opacity=0.5, annotation_text="Biology 70% (252)")
                 
                 fig_marks.update_layout(title="Subject Marks Across Tests", height=450, hovermode='x unified')
